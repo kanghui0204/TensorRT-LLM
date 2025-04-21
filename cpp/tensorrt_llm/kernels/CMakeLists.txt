@@ -61,6 +61,7 @@ endfunction()
 
 if(NOT ENABLE_MULTI_DEVICE)
   list(FILTER SRC_CU EXCLUDE REGEX "customAllReduceKernels*.*cu$")
+  list(FILTER SRC_CU EXCLUDE REGEX "customLowPrecisionAllReduceKernels*.*cu$")
 endif()
 
 add_library(kernels_src STATIC ${SRC_CPP} ${SRC_CU})

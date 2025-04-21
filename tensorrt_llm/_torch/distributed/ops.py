@@ -1,3 +1,4 @@
+import os
 import threading
 from typing import List, Optional, Tuple, Union
 
@@ -23,6 +24,23 @@ def get_allreduce_workspace(mapping: Mapping) -> torch.LongTensor:
         )
         allreduce_workspaces[mapping] = (ipc_buffers, workspace)
     return allreduce_workspaces[mapping][1]
+
+
+def allocate_low_presicion_allreduce_workspace(mapping: Mapping) -> None:
+    if not hasattr(_thread_local, 'lowprecision_allreduce_workspaces'):
+        #raw custom allreduce can use low_presicion_allreduce's workspace , because low_presicion_allreduce have large workspace
+        _thread_local.lowprecision_allreduce_workspaces = {}
+    lowprecision_allreduce_workspaces = _thread_local.lowprecision_allreduce_workspaces
+    if mapping not in lowprecision_allreduce_workspaces:
+        ipc_buffers, workspace = CustomAllReduceHelper.allocate_lowprecision_workspace(
+            mapping,
+            CustomAllReduceHelper.max_workspace_size_lowprecision(
+                mapping.tp_size),
+        )
+        lowprecision_allreduce_workspaces[mapping] = (ipc_buffers, workspace)
+        CustomAllReduceHelper.initialize_lowprecision_buffers(
+            workspace, mapping.tp_size)
+    return
 
 
 def userbuffers_allreduce_finalize(
@@ -131,14 +149,29 @@ class AllReduce(nn.Module):
                     - RESIDUAL_RMS_NORM_OUT_QUANT_NVFP4
 
                 - AUTO: AUTO chooses between NCCL and MIN_LATENCY mode based on a heuristic policy.
+
+                - LOWPRECISION: AllReduce quantizes data to lower precision for transmission.
+                  Should only be used on topologies with PCIe switches and without NVLink.
+                  This strategy may result in some precision loss but can improve performance
+                  on specific hardware configurations. Supported ops:
+                    - NONE (AllReduce only)
+                    - RESIDUAL_RMS_NORM
+        Notes:
+            - The LOWPRECISION strategy can be selected either by directly specifying it in the constructor
+              or by setting the environment variable FORCE_LOW_PRECISION_ALL_REDUCE_STRATEGY when using
+              the AUTO strategy.
         """
 
         self.mapping = mapping
         self.workspace = None
         self.strategy = strategy
+        force_low_precision_env = os.environ.get(
+            "FORCE_LOW_PRECISION_ALL_REDUCE_STRATEGY")
         if self.mapping.tp_size > 1:
             # When Strategy is UB, it is guaranteed that the workspace is not used.
             if self.strategy != AllReduceStrategy.UB:
+                if self.strategy == AllReduceStrategy.LOWPRECISION or force_low_precision_env is not None:
+                    allocate_low_presicion_allreduce_workspace(self.mapping)
                 self.workspace = get_allreduce_workspace(self.mapping)
 
     def forward(

@@ -19,6 +19,7 @@
 #include "tensorrt_llm/kernels/communicationKernels/allReduceFusionKernels.h"
 #include "tensorrt_llm/kernels/communicationKernels/allReduceWorkspace.h"
 #include "tensorrt_llm/kernels/customAllReduceKernels.h"
+#include "tensorrt_llm/kernels/customLowPrecisionAllReduceKernels.h"
 #include "tensorrt_llm/kernels/delayStream.h"
 #include "tensorrt_llm/runtime/cudaEvent.h"
 #include "tensorrt_llm/runtime/cudaStream.h"
@@ -408,6 +409,16 @@ void initBindings(pybind11::module_& m)
             tensorrt_llm::kernels::invokeDelayStreamKernel(delay_micro_secs, stream);
         },
         "Delay kernel launch on the default stream");
+    m.def(
+        "max_workspace_size_lowprecision",
+        [](int32_t tp_size) { return tensorrt_llm::kernels::max_workspace_size_lowprecision(tp_size); },
+        "Calculate the maximum workspace size needed for low precision all-reduce operations");
+
+    m.def(
+        "initialize_static_lowprecision_buffers",
+        [](intptr_t buffer, size_t tpSize)
+        { tensorrt_llm::kernels::initialize_static_lowprecision_buffers(reinterpret_cast<int64_t*>(buffer), tpSize); },
+        "Initialize static buffers for low precision all-reduce operations");
 
     py::enum_<tensorrt_llm::kernels::AllReduceFusionOp>(m, "AllReduceFusionOp")
         .value("NONE", tensorrt_llm::kernels::AllReduceFusionOp::NONE)
